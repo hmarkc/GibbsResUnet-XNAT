@@ -1,0 +1,2 @@
+export MONAI_DATA_DIRECTORY=`pwd`/dataset
+echo $MONAI_DATA_DIRECTORY
