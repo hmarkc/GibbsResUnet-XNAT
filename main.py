@@ -5,6 +5,7 @@ from pathlib import Path
 import shutil
 import sys
 import tempfile
+from typing import Optional
 
 import nibabel as nib
 import numpy as np
@@ -39,6 +40,7 @@ from model import Gibbs_UNet
 directory = os.environ.get("MONAI_DATA_DIRECTORY")
 root_dir = tempfile.mkdtemp() if directory is None else directory
 
+
 # create synthesized data
 def random_3d_images():
     for i in range(40):
@@ -49,15 +51,17 @@ def random_3d_images():
 
         n = nib.Nifti1Image(seg, np.eye(4))
         nib.save(n, os.path.join(root_dir, 'random', f"seg{i}.nii.gz"))
-    
+
     images = sorted(glob.glob(os.path.join(root_dir, 'random', "im*.nii.gz")))
     segs = sorted(glob.glob(os.path.join(root_dir, 'random', "seg*.nii.gz")))
-    return images, segs 
+    return images, segs
+
 
 def read_3d_images(images_path, segs_path):
     images = glob.glob(os.path.join(root_dir, images_path, '*'))
     segs = glob.glob(os.path.join(root_dir, segs_path, '*'))
-    return images, segs 
+    return images, segs
+
 
 def train_val_loop(images, segs):
     print_config()
@@ -96,7 +100,7 @@ def train_val_loop(images, segs):
     trainer = ignite.engine.create_supervised_trainer(
         net, opt, loss, device, False
     )
-    
+
     # optional section for checkpoint and tensorboard logging
     # adding checkpoint handler to save models (network
     # params and optimizer stats) during training
@@ -117,14 +121,16 @@ def train_val_loop(images, segs):
     train_stats_handler.attach(trainer)
 
     # TensorBoardStatsHandler plots loss at every iteration
-    train_tensorboard_stats_handler = TensorBoardStatsHandler(log_dir=log_dir, output_transform=lambda x: x)
+    train_tensorboard_stats_handler = TensorBoardStatsHandler(log_dir=log_dir,
+                                                              output_transform=lambda x: x)
     train_tensorboard_stats_handler.attach(trainer)
 
     # MLFlowHandler plots loss at every iteration on MLFlow web UI
     mlflow_dir = os.path.join(log_dir, "mlruns")
-    train_mlflow_handler = MLFlowHandler(tracking_uri=Path(mlflow_dir).as_uri(), output_transform=lambda x: x)
+    train_mlflow_handler = MLFlowHandler(tracking_uri=Path(mlflow_dir).as_uri(),
+                                         output_transform=lambda x: x)
     train_mlflow_handler.attach(trainer)
-    
+
     # optional section for model validation during training
     validation_every_n_epochs = 1
     # Set parameters for validation
@@ -170,13 +176,11 @@ def train_val_loop(images, segs):
         val_ds, batch_size=5, num_workers=8, pin_memory=torch.cuda.is_available()
     )
 
-
     @trainer.on(
         ignite.engine.Events.EPOCH_COMPLETED(every=validation_every_n_epochs)
     )
     def run_validation(engine):
         evaluator.run(val_loader)
-
 
     # Add stats event handler to print validation stats via evaluator
     val_stats_handler = StatsHandler(
@@ -222,7 +226,7 @@ def train_val_loop(images, segs):
         event_name=ignite.engine.Events.EPOCH_COMPLETED,
         handler=val_tensorboard_image_handler,
     )
-    
+
     # create a training data loader
     train_ds = ArrayDataset(images, imtrans, segs, segtrans)
     train_loader = DataLoader(
@@ -235,10 +239,19 @@ def train_val_loop(images, segs):
     max_epochs = 5
     state = trainer.run(train_loader, max_epochs)
 
+
+def handle_request(image_path: Optional[str], seg_path: Optional[str]):
+    if image_path is not None and seg_path is not None:
+        images, segs = read_3d_images(image_path, seg_path)
+    else:
+        images, segs = random_3d_images()
+    train_val_loop(images, segs)
+
+
 if __name__ == "__main__":
     # images, segs = read_3d_images('small_BrainTumour_data/imagesTr', 'small_BrainTumour_data/labelsTr')
     if len(sys.argv[1:]) == 2:
-      images, segs = read_3d_images(sys.argv[1], sys.argv[2])
+        images, segs = read_3d_images(sys.argv[1], sys.argv[2])
     else:
-      images, segs = random_3d_images()
+        images, segs = random_3d_images()
     train_val_loop(images, segs)
